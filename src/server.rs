@@ -76,3 +76,82 @@ impl Server {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::Future;
+    use std::time::Duration;
+
+    const SERVER_ADDRESS: &str = "localhost:5000";
+    const DURATION: core::time::Duration = Duration::from_millis(100);
+
+    async fn run_server() {
+        let mut server = Server::new(SERVER_ADDRESS);
+        tokio::spawn(async move {
+            server.run().await;
+        });
+        tokio::time::sleep(DURATION).await;
+    }
+
+    async fn client_connect() -> (TcpStream, String) {
+        let mut stream = TcpStream::connect(SERVER_ADDRESS)
+            .await
+            .expect("Failed to connect to server");
+
+        let mut response = vec![0; 1024];
+        let bytes_read = stream
+            .read(&mut response)
+            .await
+            .expect("Failed to read response");
+
+        (
+            stream,
+            String::from_utf8_lossy(&response[..bytes_read]).to_string(),
+        )
+    }
+
+    async fn client_task(stream: &mut TcpStream, request: &str) -> String {
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("Failed to write request");
+
+        let mut response = vec![0; 1024];
+        let bytes_read = stream
+            .read(&mut response)
+            .await
+            .expect("Failed to read response");
+
+        String::from_utf8_lossy(&response[..bytes_read]).to_string()
+    }
+
+    async fn client_execute<F, Fut>(f: F)
+    where
+        F: FnOnce(TcpStream) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        let (stream, response) = client_connect().await;
+        assert_eq!(response, "Welcome to the Key-Value Store!\n");
+
+        f(stream).await;
+
+        tokio::time::sleep(DURATION).await;
+    }
+
+    #[tokio::test]
+    async fn test_single_client_access() {
+        run_server().await;
+
+        client_execute(|mut stream| async move {
+            let response = client_task(&mut stream, "put foo bar\n").await;
+            assert_eq!(response, "OK: Inserted key 'foo' with value 'bar'\n");
+
+            let response = client_task(&mut stream, "get foo\n").await;
+            assert_eq!(response, "OK: bar\n");
+
+            let response = client_task(&mut stream, "delete foo\n").await;
+            assert_eq!(response, "OK: Deleted key 'foo' with value 'bar'\n");
+        })
+        .await;
+    }
+}
