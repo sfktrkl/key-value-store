@@ -1,12 +1,11 @@
-use std::env;
+mod cli;
+mod storage;
 
-#[tokio::main]
-async fn main() {
-    let port = env::args()
-        .skip(1)
-        .find(|arg| arg == "--port")
-        .and_then(|_| env::args().nth(2))
-        .unwrap_or_else(|| "5000".to_string());
+use cli::CommandLineInterface;
+use storage::Storage;
 
-    println!("Listening on port: {}", port);
+fn main() {
+    let storage = Storage::new();
+    let mut cli = CommandLineInterface::new(storage);
+    cli.run();
 }
