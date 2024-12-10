@@ -1,11 +1,12 @@
-mod cli;
+mod server;
 mod storage;
 
-use cli::CommandLineInterface;
-use storage::Storage;
+use server::Server;
 
-fn main() {
-    let storage = Storage::new();
-    let mut cli = CommandLineInterface::new(storage);
-    cli.run();
+const SERVER_ADDRESS: &str = "localhost:5000";
+
+#[tokio::main]
+async fn main() {
+    let mut server = Server::new(SERVER_ADDRESS);
+    server.run().await;
 }
