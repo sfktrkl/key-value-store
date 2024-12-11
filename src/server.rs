@@ -91,19 +91,18 @@ mod tests {
     use std::future::Future;
     use std::time::Duration;
 
-    const SERVER_ADDRESS: &str = "localhost:5000";
     const DURATION: core::time::Duration = Duration::from_millis(100);
 
-    async fn run_server() {
-        let mut server = Server::new(SERVER_ADDRESS);
+    async fn run_server(address: &str) {
+        let mut server = Server::new(address);
         tokio::spawn(async move {
             server.run().await;
         });
         tokio::time::sleep(DURATION).await;
     }
 
-    async fn client_connect() -> (TcpStream, String) {
-        let mut stream = TcpStream::connect(SERVER_ADDRESS)
+    async fn client_connect(address: &str) -> (TcpStream, String) {
+        let mut stream = TcpStream::connect(address)
             .await
             .expect("Failed to connect to server");
 
@@ -134,12 +133,12 @@ mod tests {
         String::from_utf8_lossy(&response[..bytes_read]).to_string()
     }
 
-    async fn client_execute<F, Fut>(f: F)
+    async fn client_execute<F, Fut>(address: &str, f: F)
     where
         F: FnOnce(TcpStream) -> Fut,
         Fut: Future<Output = ()>,
     {
-        let (stream, response) = client_connect().await;
+        let (stream, response) = client_connect(address).await;
         assert_eq!(response, "Welcome to the Key-Value Store!\n");
 
         f(stream).await;
@@ -149,9 +148,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_single_client_access() {
-        run_server().await;
+        let address = "localhost:5000";
+        run_server(&address).await;
 
-        client_execute(|mut stream| async move {
+        client_execute(&address, |mut stream| async move {
             let response = client_task(&mut stream, "put foo bar\n").await;
             assert_eq!(response, "OK: Inserted key 'foo' with value 'bar'\n");
 
