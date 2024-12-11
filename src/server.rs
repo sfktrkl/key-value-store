@@ -163,4 +163,45 @@ mod tests {
         })
         .await;
     }
+
+    #[tokio::test]
+    async fn test_multiple_client_access() {
+        let address = "localhost:5001";
+        run_server(&address).await;
+
+        let client_tasks: Vec<_> = (0..5)
+            .map(|i| {
+                tokio::spawn(async move {
+                    println!("Task {} started on thread", i);
+                    let request = format!("put key{} value{}\n", i, i);
+                    client_execute(&address, move |mut stream| async move {
+                        let response = client_task(&mut stream, &request).await;
+                        assert_eq!(
+                            response,
+                            format!("OK: Inserted key 'key{}' with value 'value{}'\n", i, i)
+                        );
+
+                        let response = client_task(&mut stream, &format!("get key{}\n", i)).await;
+                        assert_eq!(response, format!("OK: value{}\n", i));
+
+                        let response =
+                            client_task(&mut stream, &format!("delete key{}\n", i)).await;
+                        assert_eq!(
+                            response,
+                            format!("OK: Deleted key 'key{}' with value 'value{}'\n", i, i)
+                        );
+                    })
+                    .await
+                })
+            })
+            .collect();
+
+        for task in client_tasks {
+            let result = task.await;
+            if let Err(e) = result {
+                eprintln!("Task failed with error: {:?}", e);
+                assert!(false, "Some tasks failed");
+            }
+        }
+    }
 }
