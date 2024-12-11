@@ -1,17 +1,19 @@
 use crate::storage::Storage;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 
 pub struct Server {
     address: String,
-    storage: Storage,
+    storage: Arc<Mutex<Storage>>,
 }
 
 impl Server {
     pub fn new(address: &str) -> Self {
         Self {
             address: address.to_string(),
-            storage: Storage::new(),
+            storage: Arc::new(Mutex::new(Storage::new())),
         }
     }
 
@@ -32,12 +34,15 @@ impl Server {
                     continue;
                 }
 
-                Self::handle_client(socket, &mut self.storage).await;
+                let storage = self.storage.clone();
+                tokio::spawn(async move {
+                    Self::handle_client(socket, storage).await;
+                });
             }
         }
     }
 
-    async fn handle_client(mut socket: TcpStream, storage: &mut Storage) {
+    async fn handle_client(mut socket: TcpStream, storage: Arc<Mutex<Storage>>) {
         let mut buffer = [0u8; 1024];
 
         while let Ok(bytes_read) = socket.read(&mut buffer).await {
@@ -47,7 +52,11 @@ impl Server {
             }
 
             let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-            let response = Self::process_request(&request, storage);
+            let response = {
+                let mut storage = storage.lock().await;
+                Self::process_request(&request, &mut *storage)
+            };
+
             if socket.write_all(response.as_bytes()).await.is_err() {
                 eprintln!("Failed to send response");
                 break;
