@@ -1,25 +1,31 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
+#[derive(Clone)]
 pub struct Storage {
-    data: HashMap<String, String>,
+    data: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Storage {
     pub fn new() -> Self {
         Self {
-            data: HashMap::new(),
+            data: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn put(&mut self, key: String, value: String) {
-        self.data.insert(key, value);
+    pub async fn put(&self, key: String, value: String) {
+        let mut data = self.data.lock().await;
+        data.insert(key, value);
     }
 
-    pub fn get(&self, key: &str) -> Option<&String> {
-        self.data.get(key)
+    pub async fn get(&self, key: &str) -> Option<String> {
+        let data = self.data.lock().await;
+        data.get(key).cloned()
     }
 
-    pub fn delete(&mut self, key: &str) -> Option<String> {
-        self.data.remove(key)
+    pub async fn delete(&self, key: &str) -> Option<String> {
+        let mut data = self.data.lock().await;
+        data.remove(key)
     }
 }

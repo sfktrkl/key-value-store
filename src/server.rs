@@ -1,19 +1,17 @@
 use crate::storage::Storage;
-use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
 
 pub struct Server {
     address: String,
-    storage: Arc<Mutex<Storage>>,
+    storage: Storage,
 }
 
 impl Server {
     pub fn new(address: &str) -> Self {
         Self {
             address: address.to_string(),
-            storage: Arc::new(Mutex::new(Storage::new())),
+            storage: Storage::new(),
         }
     }
 
@@ -42,7 +40,7 @@ impl Server {
         }
     }
 
-    async fn handle_client(mut socket: TcpStream, storage: Arc<Mutex<Storage>>) {
+    async fn handle_client(mut socket: TcpStream, storage: Storage) {
         let mut buffer = [0u8; 1024];
 
         while let Ok(bytes_read) = socket.read(&mut buffer).await {
@@ -52,10 +50,7 @@ impl Server {
             }
 
             let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-            let response = {
-                let mut storage = storage.lock().await;
-                Self::process_request(&request, &mut *storage)
-            };
+            let response = Self::process_request(&request, &storage).await;
 
             if socket.write_all(response.as_bytes()).await.is_err() {
                 eprintln!("Failed to send response");
@@ -64,19 +59,19 @@ impl Server {
         }
     }
 
-    fn process_request(request: &str, storage: &mut Storage) -> String {
+    async fn process_request(request: &str, storage: &Storage) -> String {
         let parts: Vec<&str> = request.trim().splitn(3, ' ').collect();
 
         match parts.as_slice() {
             ["put", key, value] => {
-                storage.put(key.to_string(), value.to_string());
+                storage.put(key.to_string(), value.to_string()).await;
                 format!("OK: Inserted key '{}' with value '{}'\n", key, value)
             }
-            ["get", key] => match storage.get(key) {
+            ["get", key] => match storage.get(key).await {
                 Some(value) => format!("OK: {}\n", value),
                 None => format!("ERR: Key '{}' not found\n", key),
             },
-            ["delete", key] => match storage.delete(key) {
+            ["delete", key] => match storage.delete(key).await {
                 Some(value) => format!("OK: Deleted key '{}' with value '{}'\n", key, value),
                 None => format!("ERR: Key '{}' not found\n", key),
             },
