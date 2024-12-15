@@ -1,3 +1,4 @@
+use crate::serialization::{Request, Response};
 use crate::storage::Storage;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -49,33 +50,85 @@ impl Server {
                 break;
             }
 
-            let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-            let response = Self::process_request(&request, &storage).await;
+            let request: Request = match serde_json::from_slice(&buffer[..bytes_read]) {
+                Ok(req) => req,
+                Err(_) => {
+                    let error_response = Response {
+                        status: "ERR".to_string(),
+                        message: "Invalid request format".to_string(),
+                    };
+                    let response_bytes = serde_json::to_vec(&error_response).unwrap();
+                    let _ = socket.write_all(&response_bytes).await;
+                    continue;
+                }
+            };
 
-            if socket.write_all(response.as_bytes()).await.is_err() {
+            let response = Self::process_request(request, &storage).await;
+            let response_bytes = serde_json::to_vec(&response).unwrap();
+            if socket.write_all(&response_bytes).await.is_err() {
                 eprintln!("Failed to send response");
-                break;
             }
         }
     }
 
-    async fn process_request(request: &str, storage: &Storage) -> String {
-        let parts: Vec<&str> = request.trim().splitn(3, ' ').collect();
-
-        match parts.as_slice() {
-            ["put", key, value] => {
-                storage.put(key.to_string(), value.to_string()).await;
-                format!("OK: Inserted key '{}' with value '{}'\n", key, value)
+    async fn process_request(request: Request, storage: &Storage) -> Response {
+        match request.command.as_str() {
+            "put" => {
+                if let (Some(key), Some(value)) = (request.key, request.value) {
+                    storage.put(key.clone(), value.clone()).await;
+                    Response {
+                        status: "OK".to_string(),
+                        message: format!("Inserted key '{}' with value '{}'", key, value),
+                    }
+                } else {
+                    Response {
+                        status: "ERR".to_string(),
+                        message: "Missing key or value for 'put' command".to_string(),
+                    }
+                }
             }
-            ["get", key] => match storage.get(key).await {
-                Some(value) => format!("OK: {}\n", value),
-                None => format!("ERR: Key '{}' not found\n", key),
+            "get" => {
+                if let Some(key) = request.key {
+                    match storage.get(&key).await {
+                        Some(value) => Response {
+                            status: "OK".to_string(),
+                            message: value,
+                        },
+                        None => Response {
+                            status: "ERR".to_string(),
+                            message: format!("Key '{}' not found", key),
+                        },
+                    }
+                } else {
+                    Response {
+                        status: "ERR".to_string(),
+                        message: "Missing key for 'get' command".to_string(),
+                    }
+                }
+            }
+            "delete" => {
+                if let Some(key) = request.key {
+                    match storage.delete(&key).await {
+                        Some(value) => Response {
+                            status: "OK".to_string(),
+                            message: format!("Deleted key '{}' with value '{}'", key, value),
+                        },
+                        None => Response {
+                            status: "ERR".to_string(),
+                            message: format!("Key '{}' not found", key),
+                        },
+                    }
+                } else {
+                    Response {
+                        status: "ERR".to_string(),
+                        message: "Missing key for 'delete' command".to_string(),
+                    }
+                }
+            }
+            _ => Response {
+                status: "ERR".to_string(),
+                message: "Unknown command".to_string(),
             },
-            ["delete", key] => match storage.delete(key).await {
-                Some(value) => format!("OK: Deleted key '{}' with value '{}'\n", key, value),
-                None => format!("ERR: Key '{}' not found\n", key),
-            },
-            _ => "ERR: Unknown command\n".to_string(),
         }
     }
 }
@@ -113,9 +166,11 @@ mod tests {
         )
     }
 
-    async fn client_task(stream: &mut TcpStream, request: &str) -> String {
+    async fn client_task(stream: &mut TcpStream, request: Request) -> String {
+        let request_str = serde_json::to_string(&request).expect("Failed to serialize request");
+
         stream
-            .write_all(request.as_bytes())
+            .write_all(request_str.as_bytes())
             .await
             .expect("Failed to write request");
 
@@ -147,14 +202,35 @@ mod tests {
         run_server(&address).await;
 
         client_execute(&address, |mut stream| async move {
-            let response = client_task(&mut stream, "put foo bar\n").await;
-            assert_eq!(response, "OK: Inserted key 'foo' with value 'bar'\n");
+            let request = Request {
+                command: "put".to_string(),
+                key: Some("foo".to_string()),
+                value: Some("bar".to_string()),
+            };
+            let response = client_task(&mut stream, request).await;
+            assert_eq!(
+                response,
+                "{\"status\":\"OK\",\"message\":\"Inserted key 'foo' with value 'bar'\"}"
+            );
 
-            let response = client_task(&mut stream, "get foo\n").await;
-            assert_eq!(response, "OK: bar\n");
+            let request = Request {
+                command: "get".to_string(),
+                key: Some("foo".to_string()),
+                value: None,
+            };
+            let response = client_task(&mut stream, request).await;
+            assert_eq!(response, "{\"status\":\"OK\",\"message\":\"bar\"}");
 
-            let response = client_task(&mut stream, "delete foo\n").await;
-            assert_eq!(response, "OK: Deleted key 'foo' with value 'bar'\n");
+            let request = Request {
+                command: "delete".to_string(),
+                key: Some("foo".to_string()),
+                value: None,
+            };
+            let response = client_task(&mut stream, request).await;
+            assert_eq!(
+                response,
+                "{\"status\":\"OK\",\"message\":\"Deleted key 'foo' with value 'bar'\"}"
+            );
         })
         .await;
     }
@@ -168,22 +244,38 @@ mod tests {
             .map(|i| {
                 tokio::spawn(async move {
                     println!("Task {} started on thread", i);
-                    let request = format!("put key{} value{}\n", i, i);
+                    let put_request = Request {
+                        command: "put".to_string(),
+                        key: Some(format!("key{}", i)),
+                        value: Some(format!("value{}", i)),
+                    };
+                    let get_request = Request {
+                        command: "get".to_string(),
+                        key: Some(format!("key{}", i)),
+                        value: None,
+                    };
+                    let delete_request = Request {
+                        command: "delete".to_string(),
+                        key: Some(format!("key{}", i)),
+                        value: None,
+                    };
                     client_execute(&address, move |mut stream| async move {
-                        let response = client_task(&mut stream, &request).await;
+                        let response = client_task(&mut stream, put_request).await;
                         assert_eq!(
                             response,
-                            format!("OK: Inserted key 'key{}' with value 'value{}'\n", i, i)
+                            format!("{{\"status\":\"OK\",\"message\":\"Inserted key 'key{}' with value 'value{}'\"}}", i, i)
                         );
 
-                        let response = client_task(&mut stream, &format!("get key{}\n", i)).await;
-                        assert_eq!(response, format!("OK: value{}\n", i));
-
-                        let response =
-                            client_task(&mut stream, &format!("delete key{}\n", i)).await;
+                        let response = client_task(&mut stream, get_request).await;
                         assert_eq!(
                             response,
-                            format!("OK: Deleted key 'key{}' with value 'value{}'\n", i, i)
+                            format!("{{\"status\":\"OK\",\"message\":\"value{}\"}}", i)
+                        );
+
+                        let response = client_task(&mut stream, delete_request).await;
+                        assert_eq!(
+                            response,
+                            format!("{{\"status\":\"OK\",\"message\":\"Deleted key 'key{}' with value 'value{}'\"}}", i, i)
                         );
                     })
                     .await

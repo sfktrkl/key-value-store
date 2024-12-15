@@ -1,3 +1,4 @@
+mod serialization;
 mod server;
 mod storage;
 
