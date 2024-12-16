@@ -50,22 +50,20 @@ impl Server {
                 break;
             }
 
-            let request: Request = match serde_json::from_slice(&buffer[..bytes_read]) {
+            let request = match Request::deserialize(&buffer[..bytes_read]) {
                 Ok(req) => req,
                 Err(_) => {
                     let error_response = Response {
                         status: "ERR".to_string(),
                         message: "Invalid request format".to_string(),
                     };
-                    let response_bytes = serde_json::to_vec(&error_response).unwrap();
-                    let _ = socket.write_all(&response_bytes).await;
+                    let _ = socket.write_all(&error_response.serialize()).await;
                     continue;
                 }
             };
 
             let response = Self::process_request(request, &storage).await;
-            let response_bytes = serde_json::to_vec(&response).unwrap();
-            if socket.write_all(&response_bytes).await.is_err() {
+            if socket.write_all(&response.serialize()).await.is_err() {
                 eprintln!("Failed to send response");
             }
         }
@@ -167,7 +165,7 @@ mod tests {
     }
 
     async fn client_task(stream: &mut TcpStream, request: Request) -> String {
-        let request_str = serde_json::to_string(&request).expect("Failed to serialize request");
+        let request_str = request.to_string();
 
         stream
             .write_all(request_str.as_bytes())
