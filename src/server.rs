@@ -1,4 +1,4 @@
-use crate::serialization::{Request, Response};
+use crate::serialization::{JsonSerializer, Request, Response, Serializer};
 use crate::storage::Storage;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -35,13 +35,14 @@ impl Server {
 
                 let storage = self.storage.clone();
                 tokio::spawn(async move {
-                    Self::handle_client(socket, storage).await;
+                    let serializer = JsonSerializer;
+                    Self::handle_client(socket, storage, &serializer).await;
                 });
             }
         }
     }
 
-    async fn handle_client(mut socket: TcpStream, storage: Storage) {
+    async fn handle_client<S: Serializer>(mut socket: TcpStream, storage: Storage, serializer: &S) {
         let mut buffer = [0u8; 1024];
 
         while let Ok(bytes_read) = socket.read(&mut buffer).await {
@@ -50,20 +51,26 @@ impl Server {
                 break;
             }
 
-            let request = match Request::deserialize(&buffer[..bytes_read]) {
+            let request = match serializer.deserialize_request(&buffer[..bytes_read]) {
                 Ok(req) => req,
                 Err(_) => {
                     let error_response = Response {
                         status: "ERR".to_string(),
                         message: "Invalid request format".to_string(),
                     };
-                    let _ = socket.write_all(&error_response.serialize()).await;
+                    let _ = socket
+                        .write_all(&serializer.serialize_response(&error_response))
+                        .await;
                     continue;
                 }
             };
 
             let response = Self::process_request(request, &storage).await;
-            if socket.write_all(&response.serialize()).await.is_err() {
+            if socket
+                .write_all(&serializer.serialize_response(&response))
+                .await
+                .is_err()
+            {
                 eprintln!("Failed to send response");
             }
         }
@@ -164,21 +171,25 @@ mod tests {
         )
     }
 
-    async fn client_task(stream: &mut TcpStream, request: Request) -> String {
-        let request_str = request.to_string();
+    async fn client_task<S: Serializer>(
+        stream: &mut TcpStream,
+        request: Request,
+        serializer: &S,
+    ) -> Result<Response, String> {
+        let request_bytes = serializer.serialize_request(&request);
 
         stream
-            .write_all(request_str.as_bytes())
+            .write_all(&request_bytes)
             .await
-            .expect("Failed to write request");
+            .expect("Failed to send request");
 
-        let mut response = vec![0; 1024];
+        let mut response_buffer = vec![0; 1024];
         let bytes_read = stream
-            .read(&mut response)
+            .read(&mut response_buffer)
             .await
             .expect("Failed to read response");
 
-        String::from_utf8_lossy(&response[..bytes_read]).to_string()
+        serializer.deserialize_response(&response_buffer[..bytes_read])
     }
 
     async fn client_execute<F, Fut>(address: &str, f: F)
@@ -199,36 +210,44 @@ mod tests {
         let address = "localhost:5000";
         run_server(&address).await;
 
+        let serializer = JsonSerializer;
+        let put_request = Request {
+            command: "put".to_string(),
+            key: Some("foo".to_string()),
+            value: Some("bar".to_string()),
+        };
+        let get_request = Request {
+            command: "get".to_string(),
+            key: Some("foo".to_string()),
+            value: None,
+        };
+        let delete_request = Request {
+            command: "delete".to_string(),
+            key: Some("foo".to_string()),
+            value: None,
+        };
+
         client_execute(&address, |mut stream| async move {
-            let request = Request {
-                command: "put".to_string(),
-                key: Some("foo".to_string()),
-                value: Some("bar".to_string()),
+            let response = client_task(&mut stream, put_request, &serializer).await;
+            let expected = Response {
+                status: "OK".to_string(),
+                message: "Inserted key 'foo' with value 'bar'".to_string(),
             };
-            let response = client_task(&mut stream, request).await;
-            assert_eq!(
-                response,
-                "{\"status\":\"OK\",\"message\":\"Inserted key 'foo' with value 'bar'\"}"
-            );
+            assert_eq!(response.unwrap(), expected);
 
-            let request = Request {
-                command: "get".to_string(),
-                key: Some("foo".to_string()),
-                value: None,
+            let response = client_task(&mut stream, get_request, &serializer).await;
+            let expected = Response {
+                status: "OK".to_string(),
+                message: "bar".to_string(),
             };
-            let response = client_task(&mut stream, request).await;
-            assert_eq!(response, "{\"status\":\"OK\",\"message\":\"bar\"}");
+            assert_eq!(response.unwrap(), expected);
 
-            let request = Request {
-                command: "delete".to_string(),
-                key: Some("foo".to_string()),
-                value: None,
+            let response = client_task(&mut stream, delete_request, &serializer).await;
+            let expected = Response {
+                status: "OK".to_string(),
+                message: "Deleted key 'foo' with value 'bar'".to_string(),
             };
-            let response = client_task(&mut stream, request).await;
-            assert_eq!(
-                response,
-                "{\"status\":\"OK\",\"message\":\"Deleted key 'foo' with value 'bar'\"}"
-            );
+            assert_eq!(response.unwrap(), expected);
         })
         .await;
     }
@@ -242,6 +261,7 @@ mod tests {
             .map(|i| {
                 tokio::spawn(async move {
                     println!("Task {} started on thread", i);
+                    let serializer = JsonSerializer;
                     let put_request = Request {
                         command: "put".to_string(),
                         key: Some(format!("key{}", i)),
@@ -257,24 +277,28 @@ mod tests {
                         key: Some(format!("key{}", i)),
                         value: None,
                     };
+
                     client_execute(&address, move |mut stream| async move {
-                        let response = client_task(&mut stream, put_request).await;
-                        assert_eq!(
-                            response,
-                            format!("{{\"status\":\"OK\",\"message\":\"Inserted key 'key{}' with value 'value{}'\"}}", i, i)
-                        );
+                        let response = client_task(&mut stream, put_request, &serializer).await;
+                        let expected = Response {
+                            status: "OK".to_string(),
+                            message: format!("Inserted key 'key{}' with value 'value{}'", i, i),
+                        };
+                        assert_eq!(response.unwrap(), expected);
 
-                        let response = client_task(&mut stream, get_request).await;
-                        assert_eq!(
-                            response,
-                            format!("{{\"status\":\"OK\",\"message\":\"value{}\"}}", i)
-                        );
+                        let response = client_task(&mut stream, get_request, &serializer).await;
+                        let expected = Response {
+                            status: "OK".to_string(),
+                            message: format!("value{}", i),
+                        };
+                        assert_eq!(response.unwrap(), expected);
 
-                        let response = client_task(&mut stream, delete_request).await;
-                        assert_eq!(
-                            response,
-                            format!("{{\"status\":\"OK\",\"message\":\"Deleted key 'key{}' with value 'value{}'\"}}", i, i)
-                        );
+                        let response = client_task(&mut stream, delete_request, &serializer).await;
+                        let expected = Response {
+                            status: "OK".to_string(),
+                            message: format!("Deleted key 'key{}' with value 'value{}'", i, i),
+                        };
+                        assert_eq!(response.unwrap(), expected);
                     })
                     .await
                 })
