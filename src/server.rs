@@ -24,14 +24,8 @@ impl Server {
         println!("Server running at {}", self.address);
 
         loop {
-            if let Ok((mut socket, _)) = listener.accept().await {
+            if let Ok((socket, _)) = listener.accept().await {
                 println!("Client connected!");
-
-                let welcome_message = "Welcome to the Key-Value Store!\n";
-                if socket.write_all(welcome_message.as_bytes()).await.is_err() {
-                    eprintln!("Failed to send welcome message");
-                    continue;
-                }
 
                 let storage = self.storage.clone();
                 tokio::spawn(async move {
@@ -154,21 +148,10 @@ mod tests {
         tokio::time::sleep(DURATION).await;
     }
 
-    async fn client_connect(address: &str) -> (TcpStream, String) {
-        let mut stream = TcpStream::connect(address)
+    async fn client_connect(address: &str) -> TcpStream {
+        TcpStream::connect(address)
             .await
-            .expect("Failed to connect to server");
-
-        let mut response = vec![0; 1024];
-        let bytes_read = stream
-            .read(&mut response)
-            .await
-            .expect("Failed to read response");
-
-        (
-            stream,
-            String::from_utf8_lossy(&response[..bytes_read]).to_string(),
-        )
+            .expect("Failed to connect to server")
     }
 
     async fn client_task<S: Serializer>(
@@ -197,11 +180,7 @@ mod tests {
         F: FnOnce(TcpStream) -> Fut,
         Fut: Future<Output = ()>,
     {
-        let (stream, response) = client_connect(address).await;
-        assert_eq!(response, "Welcome to the Key-Value Store!\n");
-
-        f(stream).await;
-
+        f(client_connect(&address).await).await;
         tokio::time::sleep(DURATION).await;
     }
 
