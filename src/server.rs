@@ -1,4 +1,4 @@
-use crate::serialization::{JsonSerializer, Request, Response, Serializer};
+use crate::serialization::{JsonSerializer, Request, Response, Serializer, SimpleSerializer};
 use crate::storage::Storage;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -29,14 +29,13 @@ impl Server {
 
                 let storage = self.storage.clone();
                 tokio::spawn(async move {
-                    let serializer = JsonSerializer;
-                    Self::handle_client(socket, storage, &serializer).await;
+                    Self::handle_client(socket, storage).await;
                 });
             }
         }
     }
 
-    async fn handle_client<S: Serializer>(mut socket: TcpStream, storage: Storage, serializer: &S) {
+    async fn handle_client(mut socket: TcpStream, storage: Storage) {
         let mut buffer = [0u8; 1024];
 
         while let Ok(bytes_read) = socket.read(&mut buffer).await {
@@ -45,27 +44,36 @@ impl Server {
                 break;
             }
 
-            let request = match serializer.deserialize_request(&buffer[..bytes_read]) {
-                Ok(req) => req,
-                Err(_) => {
-                    let error_response = Response {
-                        status: "ERR".to_string(),
-                        message: "Invalid request format".to_string(),
-                    };
-                    let _ = socket
-                        .write_all(&serializer.serialize_response(&error_response))
-                        .await;
-                    continue;
-                }
+            let json = JsonSerializer;
+            let simple = SimpleSerializer;
+            let input = &buffer[..bytes_read];
+
+            let request = json.deserialize_request(input);
+            let (request, is_json) = match request {
+                Ok(req) => (req, true),
+                Err(_) => match simple.deserialize_request(input) {
+                    Ok(req) => (req, false),
+                    Err(_) => {
+                        let error_response = Response {
+                            status: "ERR".to_string(),
+                            message: "Invalid request format".to_string(),
+                        };
+                        let serialized_error = simple.serialize_response(&error_response);
+                        let _ = socket.write_all(&serialized_error).await;
+                        return;
+                    }
+                },
             };
 
-            let response = Self::process_request(request, &storage).await;
-            if socket
-                .write_all(&serializer.serialize_response(&response))
-                .await
-                .is_err()
-            {
-                eprintln!("Failed to send response");
+                    let response = Self::process_request(request, &storage).await;
+            let serialized_response = if is_json {
+                        json.serialize_response(&response)
+                    } else {
+                        simple.serialize_response(&response)
+                    };
+
+                    if socket.write_all(&serialized_response).await.is_err() {
+                        eprintln!("Failed to send response");
             }
         }
     }
