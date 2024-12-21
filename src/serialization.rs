@@ -80,7 +80,7 @@ impl Serializer for SimpleSerializer {
     }
 
     fn serialize_response(&self, response: &Response) -> Vec<u8> {
-        format!("{}\n", response.message).into_bytes()
+        format!("{}", response.message).into_bytes()
     }
 
     #[cfg(test)]
