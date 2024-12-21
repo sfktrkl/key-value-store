@@ -13,7 +13,7 @@ pub struct Response {
     pub message: String,
 }
 
-pub trait Serializer {
+pub trait Serializer: Send + Sync {
     #[cfg(test)]
     fn serialize_request(&self, request: &Request) -> Vec<u8>;
 

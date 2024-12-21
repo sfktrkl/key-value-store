@@ -65,15 +65,15 @@ impl Server {
                 },
             };
 
-                    let response = Self::process_request(request, &storage).await;
+            let response = Self::process_request(request, &storage).await;
             let serialized_response = if is_json {
-                        json.serialize_response(&response)
-                    } else {
-                        simple.serialize_response(&response)
-                    };
+                json.serialize_response(&response)
+            } else {
+                simple.serialize_response(&response)
+            };
 
-                    if socket.write_all(&serialized_response).await.is_err() {
-                        eprintln!("Failed to send response");
+            if socket.write_all(&serialized_response).await.is_err() {
+                eprintln!("Failed to send response");
             }
         }
     }
@@ -143,7 +143,9 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use std::future::Future;
+    use std::sync::Arc;
     use std::time::Duration;
 
     const DURATION: core::time::Duration = Duration::from_millis(100);
@@ -162,10 +164,10 @@ mod tests {
             .expect("Failed to connect to server")
     }
 
-    async fn client_task<S: Serializer>(
+    async fn client_task(
         stream: &mut TcpStream,
         request: Request,
-        serializer: &S,
+        serializer: &dyn Serializer,
     ) -> Result<Response, String> {
         let request_bytes = serializer.serialize_request(&request);
 
@@ -192,12 +194,15 @@ mod tests {
         tokio::time::sleep(DURATION).await;
     }
 
+    #[rstest]
+    #[case(Box::new(JsonSerializer), 5001)]
+    #[case(Box::new(SimpleSerializer), 5002)]
     #[tokio::test]
-    async fn test_single_client_access() {
-        let address = "localhost:5000";
+    async fn test_single_client_access(#[case] serializer: Box<dyn Serializer>, #[case] port: u16) {
+        let address = format!("localhost:{}", port);
         run_server(&address).await;
 
-        let serializer = JsonSerializer;
+        let serializer = serializer.as_ref();
         let put_request = Request {
             command: "put".to_string(),
             key: Some("foo".to_string()),
@@ -215,21 +220,21 @@ mod tests {
         };
 
         client_execute(&address, |mut stream| async move {
-            let response = client_task(&mut stream, put_request, &serializer).await;
+            let response = client_task(&mut stream, put_request, serializer).await;
             let expected = Response {
                 status: "OK".to_string(),
                 message: "Inserted key 'foo' with value 'bar'".to_string(),
             };
             assert_eq!(response.unwrap(), expected);
 
-            let response = client_task(&mut stream, get_request, &serializer).await;
+            let response = client_task(&mut stream, get_request, serializer).await;
             let expected = Response {
                 status: "OK".to_string(),
                 message: "bar".to_string(),
             };
             assert_eq!(response.unwrap(), expected);
 
-            let response = client_task(&mut stream, delete_request, &serializer).await;
+            let response = client_task(&mut stream, delete_request, serializer).await;
             let expected = Response {
                 status: "OK".to_string(),
                 message: "Deleted key 'foo' with value 'bar'".to_string(),
@@ -239,16 +244,25 @@ mod tests {
         .await;
     }
 
+    #[rstest]
+    #[case(Arc::new(JsonSerializer), 5003)]
+    #[case(Arc::new(SimpleSerializer), 5004)]
     #[tokio::test]
-    async fn test_multiple_client_access() {
-        let address = "localhost:5001";
+    async fn test_multiple_client_access(
+        #[case] serializer: Arc<dyn Serializer + Send + Sync>,
+        #[case] port: u16,
+    ) {
+        let address = format!("localhost:{}", port);
         run_server(&address).await;
 
         let client_tasks: Vec<_> = (0..5)
             .map(|i| {
+                let address = address.clone();
+                let serializer = Arc::clone(&serializer);
                 tokio::spawn(async move {
                     println!("Task {} started on thread", i);
-                    let serializer = JsonSerializer;
+
+                    let serializer = serializer.as_ref();
                     let put_request = Request {
                         command: "put".to_string(),
                         key: Some(format!("key{}", i)),
@@ -266,21 +280,21 @@ mod tests {
                     };
 
                     client_execute(&address, move |mut stream| async move {
-                        let response = client_task(&mut stream, put_request, &serializer).await;
+                        let response = client_task(&mut stream, put_request, serializer).await;
                         let expected = Response {
                             status: "OK".to_string(),
                             message: format!("Inserted key 'key{}' with value 'value{}'", i, i),
                         };
                         assert_eq!(response.unwrap(), expected);
 
-                        let response = client_task(&mut stream, get_request, &serializer).await;
+                        let response = client_task(&mut stream, get_request, serializer).await;
                         let expected = Response {
                             status: "OK".to_string(),
                             message: format!("value{}", i),
                         };
                         assert_eq!(response.unwrap(), expected);
 
-                        let response = client_task(&mut stream, delete_request, &serializer).await;
+                        let response = client_task(&mut stream, delete_request, serializer).await;
                         let expected = Response {
                             status: "OK".to_string(),
                             message: format!("Deleted key 'key{}' with value 'value{}'", i, i),
