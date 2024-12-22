@@ -50,9 +50,9 @@ impl Server {
 
             let request = json.deserialize_request(input);
             let (request, is_json) = match request {
-                Ok(req) => (req, true),
+                Ok(req) => (Some(req), true),
                 Err(_) => match simple.deserialize_request(input) {
-                    Ok(req) => (req, false),
+                    Ok(req) => (Some(req), false),
                     Err(_) => {
                         let error_response = Response {
                             status: "ERR".to_string(),
@@ -60,20 +60,22 @@ impl Server {
                         };
                         let serialized_error = simple.serialize_response(&error_response);
                         let _ = socket.write_all(&serialized_error).await;
-                        return;
+                        (None, false)
                     }
                 },
             };
 
-            if let Some(response) = Self::process_request(request, &storage).await {
-                let serialized_response = if is_json {
-                    json.serialize_response(&response)
-                } else {
-                    simple.serialize_response(&response)
-                };
+            if let Some(request) = request {
+                if let Some(response) = Self::process_request(request, &storage).await {
+                    let serialized_response = if is_json {
+                        json.serialize_response(&response)
+                    } else {
+                        simple.serialize_response(&response)
+                    };
 
-                if socket.write_all(&serialized_response).await.is_err() {
-                    eprintln!("Failed to send response");
+                    if socket.write_all(&serialized_response).await.is_err() {
+                        eprintln!("Failed to send response");
+                    }
                 }
             }
         }
