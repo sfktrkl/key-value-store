@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Request {
-    pub command: String,
+    pub command: Option<String>,
     pub key: Option<String>,
     pub value: Option<String>,
 }
@@ -54,7 +54,7 @@ impl Serializer for SimpleSerializer {
     fn serialize_request(&self, request: &Request) -> Vec<u8> {
         format!(
             "{} {} {}",
-            request.command,
+            request.command.clone().unwrap_or_default(),
             request.key.clone().unwrap_or_default(),
             request.value.clone().unwrap_or_default()
         )
@@ -68,7 +68,7 @@ impl Serializer for SimpleSerializer {
             Err("Invalid request".to_string())
         } else {
             Ok(Request {
-                command: parts[0].to_string(),
+                command: Some(parts[0].to_string()),
                 key: Some(parts[1].to_string()),
                 value: if parts.len() > 2 {
                     Some(parts[2].to_string())

@@ -65,77 +65,81 @@ impl Server {
                 },
             };
 
-            let response = Self::process_request(request, &storage).await;
-            let serialized_response = if is_json {
-                json.serialize_response(&response)
-            } else {
-                simple.serialize_response(&response)
-            };
+            if let Some(response) = Self::process_request(request, &storage).await {
+                let serialized_response = if is_json {
+                    json.serialize_response(&response)
+                } else {
+                    simple.serialize_response(&response)
+                };
 
-            if socket.write_all(&serialized_response).await.is_err() {
-                eprintln!("Failed to send response");
+                if socket.write_all(&serialized_response).await.is_err() {
+                    eprintln!("Failed to send response");
+                }
             }
         }
     }
 
-    async fn process_request(request: Request, storage: &Storage) -> Response {
-        match request.command.as_str() {
-            "put" => {
-                if let (Some(key), Some(value)) = (request.key, request.value) {
-                    storage.put(key.clone(), value.clone()).await;
-                    Response {
-                        status: "OK".to_string(),
-                        message: format!("Inserted key '{}' with value '{}'", key, value),
-                    }
-                } else {
-                    Response {
-                        status: "ERR".to_string(),
-                        message: "Missing key or value for 'put' command".to_string(),
-                    }
-                }
-            }
-            "get" => {
-                if let Some(key) = request.key {
-                    match storage.get(&key).await {
-                        Some(value) => Response {
+    async fn process_request(request: Request, storage: &Storage) -> Option<Response> {
+        match request.command {
+            Some(command) => match command.as_str() {
+                "put" => {
+                    if let (Some(key), Some(value)) = (request.key, request.value) {
+                        storage.put(key.clone(), value.clone()).await;
+                        Some(Response {
                             status: "OK".to_string(),
-                            message: value,
-                        },
-                        None => Response {
+                            message: format!("Inserted key '{}' with value '{}'", key, value),
+                        })
+                    } else {
+                        Some(Response {
                             status: "ERR".to_string(),
-                            message: format!("Key '{}' not found", key),
-                        },
-                    }
-                } else {
-                    Response {
-                        status: "ERR".to_string(),
-                        message: "Missing key for 'get' command".to_string(),
+                            message: "Missing key or value for 'put' command".to_string(),
+                        })
                     }
                 }
-            }
-            "delete" => {
-                if let Some(key) = request.key {
-                    match storage.delete(&key).await {
-                        Some(value) => Response {
-                            status: "OK".to_string(),
-                            message: format!("Deleted key '{}' with value '{}'", key, value),
-                        },
-                        None => Response {
+                "get" => {
+                    if let Some(key) = request.key {
+                        match storage.get(&key).await {
+                            Some(value) => Some(Response {
+                                status: "OK".to_string(),
+                                message: value,
+                            }),
+                            None => Some(Response {
+                                status: "ERR".to_string(),
+                                message: format!("Key '{}' not found", key),
+                            }),
+                        }
+                    } else {
+                        Some(Response {
                             status: "ERR".to_string(),
-                            message: format!("Key '{}' not found", key),
-                        },
-                    }
-                } else {
-                    Response {
-                        status: "ERR".to_string(),
-                        message: "Missing key for 'delete' command".to_string(),
+                            message: "Missing key for 'get' command".to_string(),
+                        })
                     }
                 }
-            }
-            _ => Response {
-                status: "ERR".to_string(),
-                message: "Unknown command".to_string(),
+                "delete" => {
+                    if let Some(key) = request.key {
+                        match storage.delete(&key).await {
+                            Some(value) => Some(Response {
+                                status: "OK".to_string(),
+                                message: format!("Deleted key '{}' with value '{}'", key, value),
+                            }),
+                            None => Some(Response {
+                                status: "ERR".to_string(),
+                                message: format!("Key '{}' not found", key),
+                            }),
+                        }
+                    } else {
+                        Some(Response {
+                            status: "ERR".to_string(),
+                            message: "Missing key for 'delete' command".to_string(),
+                        })
+                    }
+                }
+                _ => Some(Response {
+                    status: "ERR".to_string(),
+                    message: "Unknown command".to_string(),
+                }),
             },
+            _ => None,
         }
     }
 }
@@ -204,17 +208,17 @@ mod tests {
 
         let serializer = serializer.as_ref();
         let put_request = Request {
-            command: "put".to_string(),
+            command: Some("put".to_string()),
             key: Some("foo".to_string()),
             value: Some("bar".to_string()),
         };
         let get_request = Request {
-            command: "get".to_string(),
+            command: Some("get".to_string()),
             key: Some("foo".to_string()),
             value: None,
         };
         let delete_request = Request {
-            command: "delete".to_string(),
+            command: Some("delete".to_string()),
             key: Some("foo".to_string()),
             value: None,
         };
@@ -264,17 +268,17 @@ mod tests {
 
                     let serializer = serializer.as_ref();
                     let put_request = Request {
-                        command: "put".to_string(),
+                        command: Some("put".to_string()),
                         key: Some(format!("key{}", i)),
                         value: Some(format!("value{}", i)),
                     };
                     let get_request = Request {
-                        command: "get".to_string(),
+                        command: Some("get".to_string()),
                         key: Some(format!("key{}", i)),
                         value: None,
                     };
                     let delete_request = Request {
-                        command: "delete".to_string(),
+                        command: Some("delete".to_string()),
                         key: Some(format!("key{}", i)),
                         value: None,
                     };
