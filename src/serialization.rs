@@ -38,12 +38,18 @@ impl Serializer for JsonSerializer {
     }
 
     fn serialize_response(&self, response: &Response) -> Vec<u8> {
-        serde_json::to_vec(response).expect("Failed to serialize response")
+        let mut serialized = serde_json::to_vec(response).expect("Failed to serialize response");
+        serialized.push(b'\n');
+        serialized
     }
 
     #[cfg(test)]
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String> {
-        serde_json::from_slice(bytes).map_err(|e| e.to_string())
+        let response_str = String::from_utf8_lossy(bytes)
+            .trim_end_matches('\n')
+            .to_string();
+
+        serde_json::from_str(&response_str).map_err(|e| e.to_string())
     }
 }
 
@@ -80,12 +86,17 @@ impl Serializer for SimpleSerializer {
     }
 
     fn serialize_response(&self, response: &Response) -> Vec<u8> {
-        format!("{}", response.message).into_bytes()
+        let mut serialized = response.message.clone().into_bytes();
+        serialized.push(b'\n');
+        serialized
     }
 
     #[cfg(test)]
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String> {
-        let response_str = String::from_utf8_lossy(bytes).to_string();
+        let response_str = String::from_utf8_lossy(bytes)
+            .trim_end_matches('\n')
+            .to_string();
+
         Ok(Response {
             status: "OK".to_string(),
             message: response_str,
