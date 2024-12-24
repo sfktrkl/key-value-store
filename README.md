@@ -21,6 +21,7 @@ Rust package manager will automatically download the dependencies.
 - [`tokio`](https://crates.io/crates/tokio): An event-driven, non-blocking I/O platform.
 - [`serde`](https://crates.io/crates/serde): Serialization and deserialization framework.
 - [`serde_json`](https://crates.io/crates/serde_json): JSON serialization file format.
+- [`rstest`](https://crates.io/crates/rstest): Test framework for parameterized tests.
 
 ### Build and Run the Program
 
