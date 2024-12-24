@@ -281,4 +281,55 @@ mod tests {
             }
         }
     }
+
+    #[rstest]
+    #[case(5004)]
+    #[tokio::test]
+    async fn test_with_different_serializers(#[case] port: u16) {
+        let address = format!("localhost:{}", port);
+        run_server(&address).await;
+
+        let json_serializer = Box::new(JsonSerializer) as Box<dyn Serializer>;
+        let simple_serializer = Box::new(SimpleSerializer) as Box<dyn Serializer>;
+
+        let put_request = Request {
+            command: Some("put".to_string()),
+            key: Some("foo".to_string()),
+            value: Some("bar".to_string()),
+        };
+        let get_request = Request {
+            command: Some("get".to_string()),
+            key: Some("foo".to_string()),
+            value: None,
+        };
+        let delete_request = Request {
+            command: Some("delete".to_string()),
+            key: Some("foo".to_string()),
+            value: None,
+        };
+
+        client_execute(&address, |mut stream| async move {
+            let response = client_task(&mut stream, put_request, json_serializer.as_ref()).await;
+            let expected = Response {
+                status: "OK".to_string(),
+                message: "Inserted key 'foo' with value 'bar'".to_string(),
+            };
+            assert_eq!(response.unwrap(), expected);
+
+            let response = client_task(&mut stream, get_request, simple_serializer.as_ref()).await;
+            let expected = Response {
+                status: "OK".to_string(),
+                message: "bar".to_string(),
+            };
+            assert_eq!(response.unwrap(), expected);
+
+            let response = client_task(&mut stream, delete_request, json_serializer.as_ref()).await;
+            let expected = Response {
+                status: "OK".to_string(),
+                message: "Deleted key 'foo' with value 'bar'".to_string(),
+            };
+            assert_eq!(response.unwrap(), expected);
+        })
+        .await;
+    }
 }
