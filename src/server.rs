@@ -151,17 +151,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_process_request_errors() {
-        // Mock storge
+    async fn test_put_request_missing_key() {
         let storage = Storage::new();
 
-        // Test: Missing key or value for "put"
-        let put_request_missing_key = Request {
+        let request = Request {
             command: Some("put".to_string()),
             key: None,
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(put_request_missing_key, &storage).await;
+        let response = Server::process_request(request, &storage).await;
         assert_eq!(
             response,
             Some(Response {
@@ -169,13 +167,18 @@ mod tests {
                 message: "Missing key or value for 'put' command".to_string(),
             })
         );
+    }
 
-        let put_request_missing_value = Request {
+    #[tokio::test]
+    async fn test_put_request_missing_value() {
+        let storage = Storage::new();
+
+        let request = Request {
             command: Some("put".to_string()),
             key: Some("key".to_string()),
             value: None,
         };
-        let response = Server::process_request(put_request_missing_value, &storage).await;
+        let response = Server::process_request(request, &storage).await;
         assert_eq!(
             response,
             Some(Response {
@@ -183,14 +186,18 @@ mod tests {
                 message: "Missing key or value for 'put' command".to_string(),
             })
         );
+    }
 
-        // Test: Missing key for "get"
-        let get_request_missing_key = Request {
+    #[tokio::test]
+    async fn test_get_request_missing_key() {
+        let storage = Storage::new();
+
+        let request = Request {
             command: Some("get".to_string()),
             key: None,
             value: None,
         };
-        let response = Server::process_request(get_request_missing_key, &storage).await;
+        let response = Server::process_request(request, &storage).await;
         assert_eq!(
             response,
             Some(Response {
@@ -198,14 +205,18 @@ mod tests {
                 message: "Missing key for 'get' command".to_string(),
             })
         );
+    }
 
-        // Test: Missing key for "delete"
-        let delete_request_missing_key = Request {
+    #[tokio::test]
+    async fn test_delete_request_missing_key() {
+        let storage = Storage::new();
+
+        let request = Request {
             command: Some("delete".to_string()),
             key: None,
             value: None,
         };
-        let response = Server::process_request(delete_request_missing_key, &storage).await;
+        let response = Server::process_request(request, &storage).await;
         assert_eq!(
             response,
             Some(Response {
@@ -213,14 +224,18 @@ mod tests {
                 message: "Missing key for 'delete' command".to_string(),
             })
         );
+    }
 
-        // Test: Unknown command
-        let unknown_command_request = Request {
+    #[tokio::test]
+    async fn test_unknown_command() {
+        let storage = Storage::new();
+
+        let request = Request {
             command: Some("unknown".to_string()),
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(unknown_command_request, &storage).await;
+        let response = Server::process_request(request, &storage).await;
         assert_eq!(
             response,
             Some(Response {
@@ -228,14 +243,31 @@ mod tests {
                 message: "Unknown command".to_string(),
             })
         );
+    }
 
-        // Test: Invalid request with None as the command
-        let invalid_request = Request {
+    #[tokio::test]
+    async fn test_invalid_request() {
+        let storage = Storage::new();
+
+        let request = Request {
             command: None,
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(invalid_request, &storage).await;
+        let response = Server::process_request(request, &storage).await;
+        assert_eq!(response, None);
+    }
+
+    #[tokio::test]
+    async fn test_empty_request() {
+        let storage = Storage::new();
+
+        let request = Request {
+            command: None,
+            key: None,
+            value: None,
+        };
+        let response = Server::process_request(request, &storage).await;
         assert_eq!(response, None);
     }
 }
