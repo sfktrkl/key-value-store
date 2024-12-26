@@ -1,8 +1,4 @@
-mod serialization;
-mod server;
-mod storage;
-
-use server::Server;
+use key_value_store::server::Server;
 
 const SERVER_ADDRESS: &str = "localhost:5000";
 
