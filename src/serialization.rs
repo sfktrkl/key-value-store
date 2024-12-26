@@ -94,3 +94,77 @@ impl Serializer for SimpleSerializer {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(
+        Box::new(JsonSerializer),
+        r#"{"command":"put","key":"key","value":"value"}"#.to_string()
+    )]
+    #[case(
+        Box::new(SimpleSerializer),
+        r#"put key value"#.to_string()
+    )]
+    fn serialize_request(#[case] serializer: Box<dyn Serializer>, #[case] expected: String) {
+        let request = Request {
+            command: Some("put".to_string()),
+            key: Some("key".to_string()),
+            value: Some("value".to_string()),
+        };
+        let serialized = serializer.serialize_request(&request);
+        let expected = expected.as_bytes().to_vec();
+        assert_eq!(serialized, expected);
+    }
+
+    #[rstest]
+    #[case(Box::new(JsonSerializer))]
+    #[case(Box::new(SimpleSerializer))]
+    fn deserialize_request(#[case] serializer: Box<dyn Serializer>) {
+        let request = Request {
+            command: Some("put".to_string()),
+            key: Some("key".to_string()),
+            value: Some("value".to_string()),
+        };
+        let serialized = serializer.serialize_request(&request);
+        let deserialized = serializer.deserialize_request(&serialized);
+        assert!(deserialized.is_ok());
+        assert_eq!(deserialized.unwrap(), request);
+    }
+
+    #[rstest]
+    #[case(
+        Box::new(JsonSerializer),
+        concat!(r#"{"status":"OK","message":"Operation successful"}"#, "\n").to_string()
+    )]
+    #[case(
+        Box::new(SimpleSerializer),
+        concat!(r#"Operation successful"#, "\n").to_string()
+    )]
+    fn serialize_response(#[case] serializer: Box<dyn Serializer>, #[case] expected: String) {
+        let response = Response {
+            status: "OK".to_string(),
+            message: "Operation successful".to_string(),
+        };
+        let serialized = serializer.serialize_response(&response);
+        let expected = expected.as_bytes().to_vec();
+        assert_eq!(serialized, expected);
+    }
+
+    #[rstest]
+    #[case(Box::new(JsonSerializer))]
+    #[case(Box::new(SimpleSerializer))]
+    fn deserialize_response(#[case] serializer: Box<dyn Serializer>) {
+        let response = Response {
+            status: "OK".to_string(),
+            message: "Operation successful".to_string(),
+        };
+        let serialized = serializer.serialize_response(&response);
+        let deserialized = serializer.deserialize_response(&serialized);
+        assert!(deserialized.is_ok());
+        assert_eq!(deserialized.unwrap(), response);
+    }
+}
