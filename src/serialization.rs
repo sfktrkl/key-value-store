@@ -14,21 +14,15 @@ pub struct Response {
 }
 
 pub trait Serializer: Send + Sync {
-    #[cfg(test)]
     fn serialize_request(&self, request: &Request) -> Vec<u8>;
-
     fn deserialize_request(&self, bytes: &[u8]) -> Result<Request, String>;
-
     fn serialize_response(&self, response: &Response) -> Vec<u8>;
-
-    #[cfg(test)]
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String>;
 }
 
 pub struct JsonSerializer;
 
 impl Serializer for JsonSerializer {
-    #[cfg(test)]
     fn serialize_request(&self, request: &Request) -> Vec<u8> {
         serde_json::to_vec(request).expect("Failed to serialize request")
     }
@@ -43,7 +37,6 @@ impl Serializer for JsonSerializer {
         serialized
     }
 
-    #[cfg(test)]
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String> {
         let response_str = String::from_utf8_lossy(bytes)
             .trim_end_matches('\n')
@@ -56,7 +49,6 @@ impl Serializer for JsonSerializer {
 pub struct SimpleSerializer;
 
 impl Serializer for SimpleSerializer {
-    #[cfg(test)]
     fn serialize_request(&self, request: &Request) -> Vec<u8> {
         format!(
             "{} {} {}",
@@ -91,7 +83,6 @@ impl Serializer for SimpleSerializer {
         serialized
     }
 
-    #[cfg(test)]
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String> {
         let response_str = String::from_utf8_lossy(bytes)
             .trim_end_matches('\n')
