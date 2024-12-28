@@ -39,7 +39,7 @@ impl Serializer for JsonSerializer {
 
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String> {
         let response_str = String::from_utf8_lossy(bytes)
-            .trim_end_matches('\n')
+            .trim_end_matches(|c| c == '\n' || c == '\r')
             .to_string();
 
         serde_json::from_str(&response_str).map_err(|e| e.to_string())
@@ -85,7 +85,7 @@ impl Serializer for SimpleSerializer {
 
     fn deserialize_response(&self, bytes: &[u8]) -> Result<Response, String> {
         let response_str = String::from_utf8_lossy(bytes)
-            .trim_end_matches('\n')
+            .trim_end_matches(|c| c == '\n' || c == '\r')
             .to_string();
 
         Ok(Response {
@@ -121,15 +121,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Box::new(JsonSerializer))]
-    #[case(Box::new(SimpleSerializer))]
-    fn deserialize_request(#[case] serializer: Box<dyn Serializer>) {
+    #[case(
+        Box::new(JsonSerializer),
+        br#"{"command":"put","key":"key","value":"value"}"#.to_vec()
+    )]
+    #[case(
+        Box::new(SimpleSerializer),
+        b"put key value".to_vec()
+    )]
+    fn deserialize_request(#[case] serializer: Box<dyn Serializer>, #[case] serialized: Vec<u8>) {
         let request = Request {
             command: Some("put".to_string()),
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let serialized = serializer.serialize_request(&request);
         let deserialized = serializer.deserialize_request(&serialized);
         assert!(deserialized.is_ok());
         assert_eq!(deserialized.unwrap(), request);
@@ -155,14 +160,19 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Box::new(JsonSerializer))]
-    #[case(Box::new(SimpleSerializer))]
-    fn deserialize_response(#[case] serializer: Box<dyn Serializer>) {
+    #[case(
+        Box::new(JsonSerializer),
+        concat!(r#"{"status":"OK","message":"Operation successful"}"#, "\n").to_string().into_bytes()
+    )]
+    #[case(
+        Box::new(SimpleSerializer),
+        concat!(r#"Operation successful"#, "\n").to_string().into_bytes()
+    )]
+    fn deserialize_response(#[case] serializer: Box<dyn Serializer>, #[case] serialized: Vec<u8>) {
         let response = Response {
             status: "OK".to_string(),
             message: "Operation successful".to_string(),
         };
-        let serialized = serializer.serialize_response(&response);
         let deserialized = serializer.deserialize_response(&serialized);
         assert!(deserialized.is_ok());
         assert_eq!(deserialized.unwrap(), response);
