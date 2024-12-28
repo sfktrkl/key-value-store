@@ -22,6 +22,7 @@ Rust package manager will automatically download the dependencies.
 - [`serde`](https://crates.io/crates/serde): Serialization and deserialization framework.
 - [`serde_json`](https://crates.io/crates/serde_json): JSON serialization file format.
 - [`rstest`](https://crates.io/crates/rstest): Test framework for parameterized tests.
+- [`rand`](https://crates.io/crates/rand): Random number generator
 
 ### Build and Run the Program
 
