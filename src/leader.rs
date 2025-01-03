@@ -51,8 +51,7 @@ impl Node {
             time::sleep(election_timeout).await;
 
             {
-                let role = self.role.read().await;
-                if *role == Role::Follower {
+                if *self.role.read().await == Role::Follower {
                     println!("Node {}: Timeout! Starting election.", self.id);
                     self.clone().start_election().await;
                 }
