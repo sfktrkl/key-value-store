@@ -167,14 +167,14 @@ mod tests {
     #[tokio::test]
     async fn test_put_request_missing_key() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: Some("put".to_string()),
             key: None,
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(
             response,
             Some(Response {
@@ -187,14 +187,14 @@ mod tests {
     #[tokio::test]
     async fn test_put_request_missing_value() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: Some("put".to_string()),
             key: Some("key".to_string()),
             value: None,
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(
             response,
             Some(Response {
@@ -207,14 +207,14 @@ mod tests {
     #[tokio::test]
     async fn test_get_request_missing_key() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: Some("get".to_string()),
             key: None,
             value: None,
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(
             response,
             Some(Response {
@@ -227,14 +227,14 @@ mod tests {
     #[tokio::test]
     async fn test_delete_request_missing_key() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: Some("delete".to_string()),
             key: None,
             value: None,
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(
             response,
             Some(Response {
@@ -247,14 +247,14 @@ mod tests {
     #[tokio::test]
     async fn test_unknown_command() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: Some("unknown".to_string()),
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(
             response,
             Some(Response {
@@ -267,28 +267,28 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_request() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: None,
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(response, None);
     }
 
     #[tokio::test]
     async fn test_empty_request() {
         let storage = Storage::new();
-        let node: Arc::new(Node::new(id, peers));
+        let node = Arc::new(Node::new(1, vec![]));
 
         let request = Request {
             command: None,
             key: None,
             value: None,
         };
-        let response = Server::process_request(request, &storage, node).await;
+        let response = Server::process_request(request, &storage, &node).await;
         assert_eq!(response, None);
     }
 }
