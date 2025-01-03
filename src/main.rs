@@ -6,6 +6,6 @@ const PEERS: &[u64] = &[2, 3]; // IDs of other nodes in the cluster
 
 #[tokio::main]
 async fn main() {
-    let mut server = Server::new(SERVER_ADDRESS, NODE_ID, PEERS.to_vec());
+    let mut server = Server::new(SERVER_ADDRESS, PEERS.to_vec(), NODE_ID);
     server.run().await;
 }

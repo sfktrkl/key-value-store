@@ -41,7 +41,6 @@ impl Node {
             {
                 let role = self.role.read().await;
                 if *role == Role::Leader {
-                    // Leader sends heartbeats
                     self.send_heartbeat().await;
                     time::sleep(Duration::from_millis(500)).await;
                     continue;
@@ -55,44 +54,62 @@ impl Node {
                 let role = self.role.read().await;
                 if *role == Role::Follower {
                     println!("Node {}: Timeout! Starting election.", self.id);
-                    self.start_election().await;
+                    self.clone().start_election().await;
                 }
             }
         }
     }
 
     async fn start_election(self: Arc<Self>) {
-        *self.role.write().await = Role::Candidate;
-        *self.term.lock().await += 1;
-        *self.votes_received.lock().await = 1; // Vote for self
+        {
+            let mut role = self.role.write().await;
+            if *role != Role::Follower {
+                return;
+            }
+            *role = Role::Candidate;
+        }
+
+        {
+            let mut term = self.term.lock().await;
+            *term += 1;
+        }
+
+        {
+            let mut votes_received = self.votes_received.lock().await;
+            *votes_received = 1; // Vote for self
+        }
 
         println!(
             "Node {}: Became Candidate for term {}.",
             self.id,
             *self.term.lock().await
         );
-
         // Request votes from peers
-        for peer in &self.peers {
+        let mut votes = 1; // Start with self-vote
+        let mut vote_tasks = Vec::new();
+
+        for &peer_id in &self.peers {
             let node = self.clone();
-            let peer_id = *peer;
-            tokio::spawn(async move {
-                if node.request_vote(peer_id).await {
-                    *node.votes_received.lock().await += 1;
-                }
-            });
+            let task = tokio::spawn(async move { node.request_vote(peer_id).await });
+            vote_tasks.push(task);
         }
 
-        // Wait for votes or timeout
-        time::sleep(Duration::from_millis(1000)).await;
+        for task in vote_tasks {
+            if let Ok(vote_granted) = task.await {
+                if vote_granted {
+                    votes += 1;
+                }
+            }
+        }
 
-        let votes = *self.votes_received.lock().await;
-        if votes as usize > (self.peers.len() + 1) / 2 {
+        if votes > (self.peers.len() + 1) / 2 {
             println!("Node {}: Won election and became Leader.", self.id);
-            *self.role.write().await = Role::Leader;
+            let mut role = self.role.write().await;
+            *role = Role::Leader;
         } else {
             println!("Node {}: Lost election.", self.id);
-            *self.role.write().await = Role::Follower;
+            let mut role = self.role.write().await;
+            *role = Role::Follower;
         }
     }
 
