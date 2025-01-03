@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 const DURATION: core::time::Duration = Duration::from_millis(100);
 
 async fn run_server(address: &str) {
-    let mut server = Server::new(address, vec![], 1);
+    let mut server = Server::new(address, 1);
     tokio::spawn(async move {
         server.run().await;
     });

@@ -11,22 +11,25 @@ enum Role {
 }
 
 pub struct Node {
-    id: u64,
-    peers: Vec<u64>,
-    role: Arc<RwLock<Role>>,
+    pub id: u64,
     term: Arc<Mutex<u64>>,
-    votes_received: Arc<Mutex<u64>>,
+    role: Arc<RwLock<Role>>,
+    peers: RwLock<Vec<Arc<Node>>>,
 }
 
 impl Node {
-    pub fn new(id: u64, peers: Vec<u64>) -> Self {
+    pub fn new(id: u64) -> Self {
         Self {
             id,
-            peers,
-            role: Arc::new(RwLock::new(Role::Follower)),
             term: Arc::new(Mutex::new(0)),
-            votes_received: Arc::new(Mutex::new(0)),
+            role: Arc::new(RwLock::new(Role::Follower)),
+            peers: RwLock::new(Vec::new()),
         }
+    }
+
+    pub async fn add_peer(self: Arc<Self>, peer: Arc<Node>) {
+        let mut peers = self.peers.write().await;
+        peers.push(peer);
     }
 
     pub async fn run(self: Arc<Self>) {
@@ -68,14 +71,10 @@ impl Node {
             *role = Role::Candidate;
         }
 
+        // Increment the term before requesting votes
         {
             let mut term = self.term.lock().await;
             *term += 1;
-        }
-
-        {
-            let mut votes_received = self.votes_received.lock().await;
-            *votes_received = 1; // Vote for self
         }
 
         println!(
@@ -83,16 +82,19 @@ impl Node {
             self.id,
             *self.term.lock().await
         );
-        // Request votes from peers
-        let mut votes = 1; // Start with self-vote
-        let mut vote_tasks = Vec::new();
 
-        for &peer_id in &self.peers {
-            let node = self.clone();
-            let task = tokio::spawn(async move { node.request_vote(peer_id).await });
+        // Request votes from peers
+        let mut vote_tasks = vec![];
+        for peer in self.peers.read().await.iter() {
+            let id = self.id;
+            let peer = peer.clone();
+            let term = *self.term.lock().await;
+            let task = tokio::spawn(async move { peer.request_vote(id, term).await });
             vote_tasks.push(task);
         }
 
+        // Await vote results and count them
+        let mut votes = 0;
         for task in vote_tasks {
             if let Ok(vote_granted) = task.await {
                 if vote_granted {
@@ -101,7 +103,8 @@ impl Node {
             }
         }
 
-        if votes > (self.peers.len() + 1) / 2 {
+        // If this node received enough votes, it becomes the leader
+        if votes > (self.peers.read().await.len() + 1) / 2 {
             println!("Node {}: Won election and became Leader.", self.id);
             let mut role = self.role.write().await;
             *role = Role::Leader;
@@ -112,16 +115,38 @@ impl Node {
         }
     }
 
-    async fn request_vote(&self, peer_id: u64) -> bool {
-        // Simulate requesting a vote from a peer
-        println!("Node {}: Requesting vote from Node {}.", self.id, peer_id);
-        true // Simulating a granted vote for now
+    async fn request_vote(&self, candidate_id: u64, candidate_term: u64) -> bool {
+        let mut term = self.term.lock().await;
+        let role = self.role.read().await;
+
+        if *role == Role::Leader {
+            println!(
+                "Node {}: Cannot vote, already a leader in term {}.",
+                self.id, *term
+            );
+            return false;
+        }
+
+        if *term <= candidate_term {
+            println!(
+                "Node {}: Granting vote for Node {} in term {}.",
+                self.id, candidate_id, candidate_term
+            );
+            *term = term.max(candidate_term);
+            return true;
+        }
+
+        println!(
+            "Node {}: Denying vote for Node {} in term {}.",
+            self.id, candidate_id, *term
+        );
+        false
     }
 
     async fn send_heartbeat(&self) {
         println!("Node {}: Sending heartbeat.", self.id);
-        for peer in &self.peers {
-            println!("Node {}: Heartbeat sent to Node {}.", self.id, peer);
+        for peer in self.peers.read().await.iter() {
+            println!("Node {}: Heartbeat sent to Node {}.", self.id, peer.id);
         }
     }
 }

@@ -12,13 +12,16 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(address: &str, peers: Vec<u64>, id: u64) -> Self {
-        let node: Arc<Node> = Arc::<Node>::new(Node::new(id, peers));
+    pub fn new(address: &str, id: u64) -> Self {
         Self {
             address: address.to_string(),
             storage: Storage::new(),
-            node,
+            node: Arc::new(Node::new(id)),
         }
+    }
+
+    pub async fn get_node(&self) -> Arc<Node> {
+        self.node.clone()
     }
 
     pub async fn run(&mut self) {
@@ -94,7 +97,7 @@ impl Server {
     async fn process_request(
         request: Request,
         storage: &Storage,
-        _node: &Arc<Node>,
+        _node: &Node,
     ) -> Option<Response> {
         match request.command {
             Some(command) => match command.as_str() {
@@ -167,7 +170,7 @@ mod tests {
     #[tokio::test]
     async fn test_put_request_missing_key() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: Some("put".to_string()),
@@ -187,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn test_put_request_missing_value() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: Some("put".to_string()),
@@ -207,7 +210,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_request_missing_key() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: Some("get".to_string()),
@@ -227,7 +230,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_request_missing_key() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: Some("delete".to_string()),
@@ -247,7 +250,7 @@ mod tests {
     #[tokio::test]
     async fn test_unknown_command() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: Some("unknown".to_string()),
@@ -267,7 +270,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_request() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: None,
@@ -281,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_request() {
         let storage = Storage::new();
-        let node = Arc::new(Node::new(1, vec![]));
+        let node = Arc::new(Node::new(1));
 
         let request = Request {
             command: None,

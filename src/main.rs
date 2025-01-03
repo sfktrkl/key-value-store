@@ -8,21 +8,26 @@ const PEERS: &[(&str, u64)] = &[
 
 #[tokio::main]
 async fn main() {
+    let mut nodes = Vec::new();
     let mut servers = Vec::new();
-
     for &(address, id) in PEERS {
-        let peers: Vec<u64> = PEERS
-            .iter()
-            .filter(|&&(_, peer_id)| peer_id != id)
-            .map(|&(_, peer_id)| peer_id)
-            .collect();
-
-        let server = Server::new(address, peers, id);
+        let server = Server::new(address, id);
+        nodes.push(server.get_node().await);
         servers.push(server);
     }
 
+    for node in &nodes {
+        for peer in &nodes {
+            if node.id != peer.id {
+                let node = node.clone();
+                node.add_peer(peer.clone()).await;
+            }
+        }
+    }
+
     let mut server_handles = Vec::new();
-    for mut server in servers {
+    for server in servers {
+        let mut server = server;
         server_handles.push(tokio::spawn(async move {
             server.run().await;
         }));
