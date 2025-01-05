@@ -1,5 +1,7 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time;
 
@@ -15,15 +17,22 @@ pub struct Node {
     term: Arc<Mutex<u64>>,
     role: Arc<RwLock<Role>>,
     peers: RwLock<Vec<Arc<Node>>>,
+    last_heartbeat: AtomicU64,
 }
 
 impl Node {
     pub fn new(id: u64) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
         Self {
             id,
             term: Arc::new(Mutex::new(0)),
             role: Arc::new(RwLock::new(Role::Follower)),
             peers: RwLock::new(Vec::new()),
+            last_heartbeat: AtomicU64::new(now - 5000),
         }
     }
 
@@ -52,6 +61,16 @@ impl Node {
 
             let election_timeout = Duration::from_millis(1500 + rand::random::<u64>() % 500);
             time::sleep(election_timeout).await;
+
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+
+            if now < self.last_heartbeat.load(Ordering::Relaxed) + 1500 {
+                println!("Node {}: Recent heartbeat received.", self.id);
+                continue;
+            }
 
             {
                 if *self.role.read().await == Role::Follower {
@@ -143,10 +162,28 @@ impl Node {
         false
     }
 
-    async fn send_heartbeat(&self) {
+    async fn send_heartbeat(self: &Arc<Self>) {
         println!("Node {}: Sending heartbeat.", self.id);
         for peer in self.peers.read().await.iter() {
-            println!("Node {}: Heartbeat sent to Node {}.", self.id, peer.id);
+            let peer = peer.clone();
+            let self_term = *self.term.lock().await;
+            tokio::spawn(async move {
+                peer.receive_heartbeat(self_term).await;
+            });
+        }
+    }
+
+    async fn receive_heartbeat(&self, leader_term: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        self.last_heartbeat.store(now, Ordering::Relaxed);
+
+        let mut term = self.term.lock().await;
+        if leader_term > *term {
+            *term = leader_term;
         }
     }
 }
