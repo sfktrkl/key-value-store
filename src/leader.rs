@@ -187,3 +187,46 @@ impl Node {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_node_initialization() {
+        let node = Node::new(1);
+
+        assert_eq!(node.id, 1);
+        assert_eq!(*node.role.read().await, Role::Follower);
+        assert_eq!(*node.term.lock().await, 0);
+        assert_eq!(node.peers.read().await.len(), 0);
+        assert!(node.last_heartbeat.load(Ordering::Relaxed) > 0);
+    }
+
+    #[tokio::test]
+    async fn test_adding_peers() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        node1.clone().add_peer(node2.clone()).await;
+
+        assert_eq!(node1.peers.read().await.len(), 1);
+        assert_eq!(node1.peers.read().await[0].id, 2);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_handling() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        node1.clone().add_peer(node2.clone()).await;
+
+        let heartbeat = node2.last_heartbeat.load(Ordering::Relaxed);
+
+        node1.clone().send_heartbeat().await;
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(node2.last_heartbeat.load(Ordering::Relaxed) > heartbeat);
+    }
+}
