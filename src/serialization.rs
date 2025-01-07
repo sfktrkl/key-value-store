@@ -109,7 +109,7 @@ mod tests {
         Box::new(SimpleSerializer),
         r#"put key value"#.to_string()
     )]
-    fn serialize_request(#[case] serializer: Box<dyn Serializer>, #[case] expected: String) {
+    fn test_serialize_request(#[case] serializer: Box<dyn Serializer>, #[case] expected: String) {
         let request = Request {
             command: Some("put".to_string()),
             key: Some("key".to_string()),
@@ -129,7 +129,10 @@ mod tests {
         Box::new(SimpleSerializer),
         b"put key value".to_vec()
     )]
-    fn deserialize_request(#[case] serializer: Box<dyn Serializer>, #[case] serialized: Vec<u8>) {
+    fn test_deserialize_request(
+        #[case] serializer: Box<dyn Serializer>,
+        #[case] serialized: Vec<u8>,
+    ) {
         let request = Request {
             command: Some("put".to_string()),
             key: Some("key".to_string()),
@@ -149,7 +152,7 @@ mod tests {
         Box::new(SimpleSerializer),
         concat!(r#"Operation successful"#, "\n").to_string()
     )]
-    fn serialize_response(#[case] serializer: Box<dyn Serializer>, #[case] expected: String) {
+    fn test_serialize_response(#[case] serializer: Box<dyn Serializer>, #[case] expected: String) {
         let response = Response {
             status: "OK".to_string(),
             message: "Operation successful".to_string(),
@@ -168,7 +171,10 @@ mod tests {
         Box::new(SimpleSerializer),
         concat!(r#"Operation successful"#, "\n").to_string().into_bytes()
     )]
-    fn deserialize_response(#[case] serializer: Box<dyn Serializer>, #[case] serialized: Vec<u8>) {
+    fn test_deserialize_response(
+        #[case] serializer: Box<dyn Serializer>,
+        #[case] serialized: Vec<u8>,
+    ) {
         let response = Response {
             status: "OK".to_string(),
             message: "Operation successful".to_string(),
