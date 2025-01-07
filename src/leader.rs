@@ -113,7 +113,7 @@ impl Node {
         }
 
         // Await vote results and count them
-        let mut votes = 0;
+        let mut votes = 1;
         for task in vote_tasks {
             if let Ok(vote_granted) = task.await {
                 if vote_granted {
@@ -228,5 +228,39 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(node2.last_heartbeat.load(Ordering::Relaxed) > heartbeat);
+    }
+
+    #[tokio::test]
+    async fn test_election() {
+        let node = Arc::new(Node::new(1));
+
+        tokio::spawn(node.clone().start_election_timer());
+
+        // Simulate election timeout
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+
+        assert_eq!(*node.role.read().await, Role::Leader);
+        assert!(*node.term.lock().await > 0);
+    }
+
+    #[tokio::test]
+    async fn test_election_with_multiple_nodes() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        node1.clone().add_peer(node2.clone()).await;
+        node2.clone().add_peer(node1.clone()).await;
+
+        tokio::spawn(node1.clone().start_election_timer());
+        tokio::spawn(node2.clone().start_election_timer());
+
+        // Simulate election timeout
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+
+        let role1 = node1.role.read().await;
+        let role2 = node2.role.read().await;
+
+        assert!(matches!(*role1, Role::Leader) || matches!(*role2, Role::Leader));
+        assert!(matches!(*role1, Role::Follower) || matches!(*role2, Role::Follower));
     }
 }
