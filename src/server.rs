@@ -1,4 +1,4 @@
-use crate::leader::Node;
+use crate::raft::Node;
 use crate::serialization::{JsonSerializer, Request, Response, Serializer, SimpleSerializer};
 use crate::storage::Storage;
 use std::sync::Arc;

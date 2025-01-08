@@ -1,4 +1,4 @@
-pub mod leader;
+pub mod raft;
 pub mod serialization;
 pub mod server;
 pub mod storage;
