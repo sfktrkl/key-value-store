@@ -231,6 +231,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_vote_request_granted() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        assert!(node2.request_vote(node1.id, 1).await);
+        assert_eq!(*node2.term.lock().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_vote_request_denied() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        {
+            let mut term = node2.term.lock().await;
+            *term = 2;
+        }
+
+        assert!(!node2.request_vote(node1.id, 1).await);
+    }
+
+    #[tokio::test]
+    async fn test_vote_request_denied_leader() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        {
+            let mut role = node1.role.write().await;
+            *role = Role::Leader;
+        }
+
+        assert!(!node1.request_vote(node2.id, 1).await);
+    }
+
+    #[tokio::test]
     async fn test_election() {
         let node = Arc::new(Node::new(1));
 
