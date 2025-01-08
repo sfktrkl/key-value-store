@@ -298,4 +298,28 @@ mod tests {
         assert!(matches!(*role1, Role::Leader) || matches!(*role2, Role::Leader));
         assert!(matches!(*role1, Role::Follower) || matches!(*role2, Role::Follower));
     }
+
+    #[tokio::test]
+    async fn test_election_hearbeat_prevents_election() {
+        let node1 = Arc::new(Node::new(1));
+        let node2 = Arc::new(Node::new(2));
+
+        node1.clone().add_peer(node2.clone()).await;
+        node2.clone().add_peer(node1.clone()).await;
+
+        tokio::spawn(node1.clone().start_election_timer());
+        tokio::spawn(node2.clone().start_election_timer());
+
+        // Simulate election timeout
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let heartbeat = node2.last_heartbeat.load(Ordering::Relaxed);
+
+        node1.send_heartbeat().await;
+
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+
+        assert_eq!(*node2.role.read().await, Role::Follower);
+        assert!(node2.last_heartbeat.load(Ordering::Relaxed) > heartbeat);
+    }
 }
