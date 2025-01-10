@@ -79,7 +79,8 @@ impl Server {
             };
 
             if let Some(request) = request {
-                if let Some(response) = Self::process_request(request, &storage, &node).await {
+                if let Some(response) = Self::process_request(request, &storage, node.clone()).await
+                {
                     let serialized_response = if is_json {
                         json.serialize_response(&response)
                     } else {
@@ -97,7 +98,7 @@ impl Server {
     async fn process_request(
         request: Request,
         storage: &Storage,
-        _node: &Node,
+        _node: Arc<Node>,
     ) -> Option<Response> {
         match request.command {
             Some(command) => match command.as_str() {
@@ -177,7 +178,7 @@ mod tests {
             key: None,
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(
             response,
             Some(Response {
@@ -197,7 +198,7 @@ mod tests {
             key: Some("key".to_string()),
             value: None,
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(
             response,
             Some(Response {
@@ -217,7 +218,7 @@ mod tests {
             key: None,
             value: None,
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(
             response,
             Some(Response {
@@ -237,7 +238,7 @@ mod tests {
             key: None,
             value: None,
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(
             response,
             Some(Response {
@@ -257,7 +258,7 @@ mod tests {
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(
             response,
             Some(Response {
@@ -277,7 +278,7 @@ mod tests {
             key: Some("key".to_string()),
             value: Some("value".to_string()),
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(response, None);
     }
 
@@ -291,7 +292,7 @@ mod tests {
             key: None,
             value: None,
         };
-        let response = Server::process_request(request, &storage, &node).await;
+        let response = Server::process_request(request, &storage, node.clone()).await;
         assert_eq!(response, None);
     }
 }
