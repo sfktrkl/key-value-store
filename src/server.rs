@@ -1,4 +1,4 @@
-use crate::raft::Node;
+use crate::raft::{Node, Role};
 use crate::serialization::{JsonSerializer, Request, Response, Serializer, SimpleSerializer};
 use crate::storage::Storage;
 use std::sync::Arc;
@@ -104,11 +104,26 @@ impl Server {
             Some(command) => match command.as_str() {
                 "put" => {
                     if let (Some(key), Some(value)) = (request.key, request.value) {
-                        storage.put(key.clone(), value.clone()).await;
-                        Some(Response {
-                            status: "OK".to_string(),
-                            message: format!("Inserted key '{}' with value '{}'", key, value),
-                        })
+                        let node_role = _node.role.read().await;
+                        if *node_role == Role::Leader {
+                            _node
+                                .clone()
+                                .handle_client_request(format!("put {} {}", key, value))
+                                .await;
+
+                            Some(Response {
+                                status: "OK".to_string(),
+                                message: format!(
+                                    "Replication initiated for key '{}' with value '{}'",
+                                    key, value
+                                ),
+                            })
+                        } else {
+                            Some(Response {
+                                status: "ERR".to_string(),
+                                message: "This node is not the leader".to_string(),
+                            })
+                        }
                     } else {
                         Some(Response {
                             status: "ERR".to_string(),
@@ -137,15 +152,22 @@ impl Server {
                 }
                 "delete" => {
                     if let Some(key) = request.key {
-                        match storage.delete(&key).await {
-                            Some(value) => Some(Response {
+                        let node_role = _node.role.read().await;
+                        if *node_role == Role::Leader {
+                            _node
+                                .clone()
+                                .handle_client_request(format!("delete {}", key))
+                                .await;
+
+                            Some(Response {
                                 status: "OK".to_string(),
-                                message: format!("Deleted key '{}' with value '{}'", key, value),
-                            }),
-                            None => Some(Response {
+                                message: format!("Replication initiated for delete key '{}'", key),
+                            })
+                        } else {
+                            Some(Response {
                                 status: "ERR".to_string(),
-                                message: format!("Key '{}' not found", key),
-                            }),
+                                message: "This node is not the leader".to_string(),
+                            })
                         }
                     } else {
                         Some(Response {

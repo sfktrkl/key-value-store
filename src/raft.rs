@@ -5,8 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time;
 
+use crate::log::LogEntry;
+
 #[derive(Debug, Clone, PartialEq)]
-enum Role {
+pub enum Role {
     Leader,
     Follower,
     Candidate,
@@ -15,9 +17,10 @@ enum Role {
 pub struct Node {
     pub id: u64,
     term: Arc<Mutex<u64>>,
-    role: Arc<RwLock<Role>>,
+    pub role: Arc<RwLock<Role>>,
     peers: RwLock<Vec<Arc<Node>>>,
     last_heartbeat: AtomicU64,
+    log: Mutex<Vec<LogEntry>>,
 }
 
 impl Node {
@@ -33,6 +36,7 @@ impl Node {
             role: Arc::new(RwLock::new(Role::Follower)),
             peers: RwLock::new(Vec::new()),
             last_heartbeat: AtomicU64::new(now - 5000),
+            log: Mutex::new(Vec::new()),
         }
     }
 
@@ -185,6 +189,103 @@ impl Node {
         if leader_term > *term {
             *term = leader_term;
         }
+    }
+
+    pub async fn handle_client_request(self: Arc<Self>, command: String) {
+        // Only the leader should handle client requests
+        {
+            let role = self.role.read().await;
+            if *role != Role::Leader {
+                println!(
+                    "Node {}: Not the leader, cannot handle client request.",
+                    self.id
+                );
+                return;
+            }
+        }
+
+        // Create a new log entry
+        let new_log_entry = {
+            let log = self.log.lock().await;
+            let term = *self.term.lock().await;
+            let index = log.len() as u64 + 1; // Log index starts at 1
+
+            LogEntry {
+                term,
+                index,
+                command: command.clone(),
+            }
+        };
+
+        // Append the new entry to the leader's log
+        {
+            let mut log = self.log.lock().await;
+            log.push(new_log_entry.clone());
+        }
+
+        println!(
+            "Node {}: Appended log entry {:?} to its log.",
+            self.id, new_log_entry
+        );
+
+        // Start replication to followers
+        self.clone().send_append_entries().await;
+
+        // Apply the command to the local state machine once committed
+        self.clone().apply_committed_logs().await;
+    }
+
+    pub async fn send_append_entries(self: Arc<Self>) {
+        let log = self.log.lock().await;
+        let term = *self.term.lock().await;
+
+        for peer in self.peers.read().await.iter() {
+            let id = self.id;
+            let peer = peer.clone();
+            let peer_id = peer.id;
+            let entries_to_replicate = log.clone(); // Clone the log for sending
+            tokio::spawn(async move {
+                let success = peer
+                    .receive_append_entries(term, entries_to_replicate)
+                    .await;
+
+                if success {
+                    println!("Node {}: AppendEntries successful for peer {}", id, peer_id);
+                } else {
+                    println!("Node {}: AppendEntries failed for peer {}", id, peer_id);
+                }
+            });
+        }
+    }
+
+    pub async fn receive_append_entries(
+        self: Arc<Self>,
+        leader_term: u64,
+        entries: Vec<LogEntry>,
+    ) -> bool {
+        let mut term = self.term.lock().await;
+
+        if leader_term < *term {
+            return false; // Reject entries if leader's term is outdated
+        }
+
+        // Update term if necessary
+        if leader_term > *term {
+            *term = leader_term;
+            let mut role = self.role.write().await;
+            *role = Role::Follower; // Become a follower if term is higher
+        }
+
+        // Append new log entries
+        let mut log = self.log.lock().await;
+        log.extend(entries);
+
+        println!("Node {}: Appended entries from leader.", self.id);
+        true
+    }
+
+    pub async fn apply_committed_logs(self: Arc<Self>) {
+        println!("Applied logs");
     }
 }
 
