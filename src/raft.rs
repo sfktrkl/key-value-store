@@ -21,6 +21,8 @@ pub struct Node {
     peers: RwLock<Vec<Arc<Node>>>,
     last_heartbeat: AtomicU64,
     log: Mutex<Vec<LogEntry>>,
+    commit_index: AtomicU64,
+    last_applied: AtomicU64,
 }
 
 impl Node {
@@ -37,6 +39,8 @@ impl Node {
             peers: RwLock::new(Vec::new()),
             last_heartbeat: AtomicU64::new(now - 5000),
             log: Mutex::new(Vec::new()),
+            commit_index: AtomicU64::new(0),
+            last_applied: AtomicU64::new(0),
         }
     }
 
@@ -285,7 +289,42 @@ impl Node {
     }
 
     pub async fn apply_committed_logs(self: Arc<Self>) {
-        println!("Applied logs");
+        let mut log = self.log.lock().await;
+
+        for entry in log.iter() {
+            if entry.index > self.last_applied.load(Ordering::Relaxed) {
+                println!("Node {}: Applying log entry {:?}", self.id, entry);
+
+                // Parse and apply the command to the local storage
+                let parts: Vec<&str> = entry.command.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let cmd = parts[0];
+                    let key = parts[1].to_string();
+                    let value = parts[2].to_string();
+
+                    /*
+                    match cmd {
+                        "put" => {
+                            self.storage.put(key.clone(), value.clone()).await;
+                            println!(
+                                "Node {}: Applied 'put' command: key = {}, value = {}",
+                                self.id, key, value
+                            );
+                        }
+                        "delete" => {
+                            self.storage.delete(&key).await;
+                            println!("Node {}: Applied 'delete' command: key = {}", self.id, key);
+                        }
+                        _ => {
+                            println!("Node {}: Unknown command in log entry", self.id);
+                        }
+                    }
+                    */
+                }
+
+                self.last_applied.store(entry.index, Ordering::Relaxed); // Update applied index
+            }
+        }
     }
 }
 
